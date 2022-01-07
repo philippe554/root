@@ -8,12 +8,13 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#ifndef ROOT_RDF_RDEFINE
-#define ROOT_RDF_RDEFINE
+#ifndef ROOT_RDF_RDEFINEOFFSET
+#define ROOT_RDF_RDEFINEOFFSET
 
 #include "ROOT/RDF/ColumnReaderUtils.hxx"
 #include "ROOT/RDF/RColumnReaderBase.hxx"
 #include "ROOT/RDF/RDefineBase.hxx"
+#include "ROOT/RDF/RDefine.hxx" // for the CustomColExtraArgs namespace
 #include "ROOT/RDF/RLoopManager.hxx"
 #include "ROOT/RDF/Utils.hxx"
 #include "ROOT/RStringView.hxx"
@@ -34,16 +35,8 @@ namespace RDF {
 
 using namespace ROOT::TypeTraits;
 
-// clang-format off
-namespace CustomColExtraArgs {
-struct None{};
-struct Slot{};
-struct SlotAndEntry{};
-}
-// clang-format on
-
 template <typename F, typename ExtraArgsTag = CustomColExtraArgs::None>
-class R__CLING_PTRCHECK(off) RDefine final : public RDefineBase {
+class R__CLING_PTRCHECK(off) RDefineOffset final : public RDefineBase {
    // shortcuts
    using NoneTag = CustomColExtraArgs::None;
    using SlotTag = CustomColExtraArgs::Slot;
@@ -62,6 +55,7 @@ class R__CLING_PTRCHECK(off) RDefine final : public RDefineBase {
 
    F fExpression;
    ValuesPerSlot_t fLastResults;
+   std::vector<int> fEntryOffset;
 
    /// Column readers per slot and per input column
    std::vector<std::array<std::unique_ptr<RColumnReaderBase>, ColumnTypes_t::list_size>> fValues;
@@ -70,7 +64,7 @@ class R__CLING_PTRCHECK(off) RDefine final : public RDefineBase {
    void UpdateHelper(unsigned int slot, Long64_t entry, TypeList<ColTypes...>, std::index_sequence<S...>, NoneTag)
    {
       fLastResults[slot * RDFInternal::CacheLineStep<ret_type>()] =
-         fExpression(fValues[slot][S]->template Get<ColTypes>(entry)...);
+         fExpression(fValues[slot][S]->template Get<ColTypes>(entry + fEntryOffset[S])...);
       // silence "unused parameter" warnings in gcc
       (void)slot;
       (void)entry;
@@ -80,7 +74,7 @@ class R__CLING_PTRCHECK(off) RDefine final : public RDefineBase {
    void UpdateHelper(unsigned int slot, Long64_t entry, TypeList<ColTypes...>, std::index_sequence<S...>, SlotTag)
    {
       fLastResults[slot * RDFInternal::CacheLineStep<ret_type>()] =
-         fExpression(slot, fValues[slot][S]->template Get<ColTypes>(entry)...);
+         fExpression(slot, fValues[slot][S]->template Get<ColTypes>(entry + fEntryOffset[S])...);
       // silence "unused parameter" warnings in gcc
       (void)slot;
       (void)entry;
@@ -91,28 +85,30 @@ class R__CLING_PTRCHECK(off) RDefine final : public RDefineBase {
    UpdateHelper(unsigned int slot, Long64_t entry, TypeList<ColTypes...>, std::index_sequence<S...>, SlotAndEntryTag)
    {
       fLastResults[slot * RDFInternal::CacheLineStep<ret_type>()] =
-         fExpression(slot, entry, fValues[slot][S]->template Get<ColTypes>(entry)...);
+         fExpression(slot, entry, fValues[slot][S]->template Get<ColTypes>(entry + fEntryOffset[S])...);
       // silence "unused parameter" warnings in gcc
       (void)slot;
       (void)entry;
    }
 
 public:
-   RDefine(std::string_view name, std::string_view type, F expression, const ROOT::RDF::ColumnNames_t &columns,
-           const RDFInternal::RColumnRegister &colRegister, RLoopManager &lm,
-           const std::pair<int, int> &entryOffsetLimit = {0, 0})
+   RDefineOffset(std::string_view name, std::string_view type, F expression, const ROOT::RDF::ColumnNames_t &columns,
+                 const RDFInternal::RColumnRegister &colRegister, RLoopManager &lm,
+                 const std::pair<int, int> &entryOffsetLimit, const std::vector<int> &entryOffset)
       : RDefineBase(name, type, colRegister, lm, columns, entryOffsetLimit), fExpression(std::move(expression)),
-        fLastResults(lm.GetNSlots() * RDFInternal::CacheLineStep<ret_type>()), fValues(lm.GetNSlots())
+        fLastResults(lm.GetNSlots() * RDFInternal::CacheLineStep<ret_type>()), fValues(lm.GetNSlots()),
+        fEntryOffset(entryOffset)
    {
    }
 
-   RDefine(const RDefine &) = delete;
-   RDefine &operator=(const RDefine &) = delete;
+   RDefineOffset(const RDefineOffset &) = delete;
+   RDefineOffset &operator=(const RDefineOffset &) = delete;
 
    void InitSlot(TTreeReader *r, unsigned int slot) final
    {
       RDFInternal::RColumnReadersInfo info{fColumnNames, fColRegister, fIsDefine.data(), fLoopManager->GetDSValuePtrs(),
                                            fLoopManager->GetDataSource()};
+
       fValues[slot] = RDFInternal::MakeColumnReaders(slot, r, ColumnTypes_t{}, info);
       fLastCheckedEntry[slot * RDFInternal::CacheLineStep<Long64_t>()] = -1;
    }
@@ -133,7 +129,7 @@ public:
       }
    }
 
-   void Update(unsigned int /*slot*/, const ROOT::RDF::RSampleInfo &/*id*/) final {}
+   void Update(unsigned int /*slot*/, const ROOT::RDF::RSampleInfo & /*id*/) final {}
 
    const std::type_info &GetTypeId() const { return typeid(ret_type); }
 
@@ -145,8 +141,8 @@ public:
    }
 };
 
-} // ns RDF
-} // ns Detail
-} // ns ROOT
+} // namespace RDF
+} // namespace Detail
+} // namespace ROOT
 
-#endif // ROOT_RDF_RDEFINE
+#endif // ROOT_RDF_RDEFINEOFFSET

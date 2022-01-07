@@ -22,9 +22,11 @@ using ROOT::Detail::RDF::RDefineBase;
 namespace RDFInternal = ROOT::Internal::RDF; // redundant (already present in the header), but Windows needs it
 
 RDefineBase::RDefineBase(std::string_view name, std::string_view type, const RDFInternal::RColumnRegister &colRegister,
-                         ROOT::Detail::RDF::RLoopManager &lm, const ROOT::RDF::ColumnNames_t &columnNames)
+                         ROOT::Detail::RDF::RLoopManager &lm, const ROOT::RDF::ColumnNames_t &columnNames,
+                         const std::pair<int, int> &entryOffsetLimit)
    : fName(name), fType(type), fLastCheckedEntry(lm.GetNSlots() * RDFInternal::CacheLineStep<Long64_t>(), -1),
-     fColRegister(colRegister), fLoopManager(&lm), fColumnNames(columnNames), fIsDefine(columnNames.size())
+     fColRegister(colRegister), fLoopManager(&lm), fColumnNames(columnNames), fIsDefine(columnNames.size()),
+     fEntryOffsetLimit(entryOffsetLimit)
 {
    const auto nColumns = fColumnNames.size();
    for (auto i = 0u; i < nColumns; ++i)
@@ -42,4 +44,9 @@ std::string RDefineBase::GetName() const
 std::string RDefineBase::GetTypeName() const
 {
    return fType;
+}
+
+const std::pair<int, int> &RDefineBase::GetEntryOffsetLimit() const
+{
+   return fEntryOffsetLimit;
 }

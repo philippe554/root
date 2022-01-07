@@ -18,12 +18,14 @@
 #include "ROOT/RDF/InterfaceUtils.hxx"
 #include "ROOT/RDF/RColumnRegister.hxx"
 #include "ROOT/RDF/RDefine.hxx"
+#include "ROOT/RDF/RDefineOffset.hxx"
 #include "ROOT/RDF/RDefinePerSample.hxx"
 #include "ROOT/RDF/RFilter.hxx"
 #include "ROOT/RDF/RLazyDSImpl.hxx"
 #include "ROOT/RDF/RLoopManager.hxx"
 #include "ROOT/RDF/RRange.hxx"
 #include "ROOT/RDF/Utils.hxx"
+#include "ROOT/RMovingCachedDS.hxx"
 #include "ROOT/RResultPtr.hxx"
 #include "ROOT/RSnapshotOptions.hxx"
 #include "ROOT/RStringView.hxx"
@@ -302,9 +304,10 @@ public:
    /// auto df_with_define = df.Define("newColumn", "x*x + y*y");
    /// ~~~
    template <typename F, typename std::enable_if_t<!std::is_convertible<F, std::string>::value, int> = 0>
-   RInterface<Proxied, DS_t> Define(std::string_view name, F expression, const ColumnNames_t &columns = {})
+   RInterface<Proxied, DS_t> Define(std::string_view name, F expression, const ColumnNames_t &columns = {},
+                                    const std::vector<int>& entryOffset = {})
    {
-      return DefineImpl<F, RDFDetail::CustomColExtraArgs::None>(name, std::move(expression), columns, "Define");
+      return DefineImpl<F, RDFDetail::CustomColExtraArgs::None>(name, std::move(expression), columns, entryOffset, "Define");
    }
    // clang-format on
 
@@ -331,9 +334,10 @@ public:
    ///
    /// See Define for more information.
    template <typename F>
-   RInterface<Proxied, DS_t> DefineSlot(std::string_view name, F expression, const ColumnNames_t &columns = {})
+   RInterface<Proxied, DS_t> DefineSlot(std::string_view name, F expression, const ColumnNames_t &columns = {},
+                                        const std::vector<int>& entryOffset = {})
    {
-      return DefineImpl<F, RDFDetail::CustomColExtraArgs::Slot>(name, std::move(expression), columns, "DefineSlot");
+      return DefineImpl<F, RDFDetail::CustomColExtraArgs::Slot>(name, std::move(expression), columns, entryOffset, "DefineSlot");
    }
    // clang-format on
 
@@ -361,10 +365,11 @@ public:
    ///
    /// See Define for more information.
    template <typename F>
-   RInterface<Proxied, DS_t> DefineSlotEntry(std::string_view name, F expression, const ColumnNames_t &columns = {})
+   RInterface<Proxied, DS_t> DefineSlotEntry(std::string_view name, F expression, const ColumnNames_t &columns = {},
+                                             const std::vector<int>& entryOffset = {})
    {
       return DefineImpl<F, RDFDetail::CustomColExtraArgs::SlotAndEntry>(name, std::move(expression), columns,
-                                                                        "DefineSlotEntry");
+                                                                        entryOffset, "DefineSlotEntry");
    }
    // clang-format on
 
@@ -413,9 +418,11 @@ public:
    /// An exception is thrown in case the column to redefine does not already exist.
    /// See Define() for more information.
    template <typename F, std::enable_if_t<!std::is_convertible<F, std::string>::value, int> = 0>
-   RInterface<Proxied, DS_t> Redefine(std::string_view name, F expression, const ColumnNames_t &columns = {})
+   RInterface<Proxied, DS_t> Redefine(std::string_view name, F expression, const ColumnNames_t &columns = {},
+                                      const std::vector<int> &entryOffset = {})
    {
-      return DefineImpl<F, RDFDetail::CustomColExtraArgs::None>(name, std::move(expression), columns, "Redefine");
+      return DefineImpl<F, RDFDetail::CustomColExtraArgs::None>(name, std::move(expression), columns, entryOffset,
+                                                                "Redefine");
    }
 
    // clang-format off
@@ -432,9 +439,11 @@ public:
    /// See DefineSlot() for more information.
    // clang-format on
    template <typename F>
-   RInterface<Proxied, DS_t> RedefineSlot(std::string_view name, F expression, const ColumnNames_t &columns = {})
+   RInterface<Proxied, DS_t> RedefineSlot(std::string_view name, F expression, const ColumnNames_t &columns = {},
+                                          const std::vector<int> &entryOffset = {})
    {
-      return DefineImpl<F, RDFDetail::CustomColExtraArgs::Slot>(name, std::move(expression), columns, "RedefineSlot");
+      return DefineImpl<F, RDFDetail::CustomColExtraArgs::Slot>(name, std::move(expression), columns, entryOffset,
+                                                                "RedefineSlot");
    }
 
    // clang-format off
@@ -451,10 +460,11 @@ public:
    /// See DefineSlotEntry() for more information.
    // clang-format on
    template <typename F>
-   RInterface<Proxied, DS_t> RedefineSlotEntry(std::string_view name, F expression, const ColumnNames_t &columns = {})
+   RInterface<Proxied, DS_t> RedefineSlotEntry(std::string_view name, F expression, const ColumnNames_t &columns = {},
+                                               const std::vector<int> &entryOffset = {})
    {
       return DefineImpl<F, RDFDetail::CustomColExtraArgs::SlotAndEntry>(name, std::move(expression), columns,
-                                                                        "RedefineSlotEntry");
+                                                                        entryOffset, "RedefineSlotEntry");
    }
 
    ////////////////////////////////////////////////////////////////////////////
@@ -973,6 +983,21 @@ public:
    /// See the other Range overload for a detailed description.
    // clang-format on
    RInterface<RDFDetail::RRange<Proxied>, DS_t> Range(unsigned int end) { return Range(0, end, 1); }
+
+   template <typename... ColumnTypes>
+   RInterface<RLoopManager> MovingCache(ColumnNames_t columns)
+   {
+      auto cachedDataSource = RDFInternal::MakeRMovingCachedDS<RInterface, Proxied, ColumnTypes...>(
+         *this, fProxiedPtr, fLoopManager, fColRegister, columns);
+
+      ColumnNames_t defaultColumnNames;
+      auto cachedLoopManager =
+         std::make_shared<RDFDetail::RLoopManager>(std::move(cachedDataSource), defaultColumnNames);
+
+      RInterface<RLoopManager> cachedDataFrame(cachedLoopManager);
+
+      return cachedDataFrame;
+   }
 
    // clang-format off
    ////////////////////////////////////////////////////////////////////////////
@@ -2853,7 +2878,8 @@ private:
 
    template <typename F, typename DefineType, typename RetType = typename TTraits::CallableTraits<F>::ret_type>
    std::enable_if_t<std::is_default_constructible<RetType>::value, RInterface<Proxied, DS_t>>
-   DefineImpl(std::string_view name, F &&expression, const ColumnNames_t &columns, const std::string &where)
+   DefineImpl(std::string_view name, F &&expression, const ColumnNames_t &columns, const std::vector<int> &entryOffset,
+              const std::string &where)
    {
       RDFInternal::CheckValidCppVarName(name, where);
       if (where.compare(0, 8, "Redefine") != 0) { // not a Redefine
@@ -2877,6 +2903,17 @@ private:
       const auto validColumnNames = GetValidatedColumnNames(nColumns, columns);
       CheckAndFillDSColumns(validColumnNames, ColTypes_t());
 
+      const auto entryOffsetLimit = GetEntryOffsetLimit(validColumnNames, entryOffset);
+      if (entryOffsetLimit.first != 0 || entryOffsetLimit.second != 0) {
+         if (fDataSource == nullptr) {
+            // Using JITing, at this point, a moving cached data source can be inserted.
+            throw std::runtime_error("Entry offset not possible if not using a data source");
+         } else {
+            // This will throw an error if the data source does not support entry offsets.
+            fDataSource->AddEntryOffsetLimit(entryOffsetLimit);
+         }
+      }
+
       // Declare return type to the interpreter, for future use by jitted actions
       auto retTypeName = RDFInternal::TypeID2TypeName(typeid(RetType));
       if (retTypeName.empty()) {
@@ -2886,13 +2923,25 @@ private:
          retTypeName = "CLING_UNKNOWN_TYPE_" + demangledType;
       }
 
-      using NewCol_t = RDFDetail::RDefine<F, DefineType>;
-      auto newColumn = std::make_shared<NewCol_t>(name, retTypeName, std::forward<F>(expression), validColumnNames,
-                                                  fColRegister, *fLoopManager);
-      fLoopManager->Book(newColumn.get());
-
       RDFInternal::RColumnRegister newCols(fColRegister);
-      newCols.AddColumn(newColumn);
+
+      bool hasOffset = std::any_of(entryOffset.begin(), entryOffset.end(), [](int offset) { return offset != 0; });
+      if (hasOffset) {
+         using NewCol_t = RDFDetail::RDefineOffset<F, DefineType>;
+         auto newColumn = std::make_shared<NewCol_t>(name, retTypeName, std::forward<F>(expression), validColumnNames,
+                                                     fColRegister, *fLoopManager, entryOffsetLimit, entryOffset);
+
+         fLoopManager->Book(newColumn.get());
+
+         newCols.AddColumn(newColumn);
+      } else {
+         using NewCol_t = RDFDetail::RDefine<F, DefineType>;
+         auto newColumn = std::make_shared<NewCol_t>(name, retTypeName, std::forward<F>(expression), validColumnNames,
+                                                     fColRegister, *fLoopManager);
+         fLoopManager->Book(newColumn.get());
+
+         newCols.AddColumn(newColumn);
+      }
 
       RInterface<Proxied> newInterface(fProxiedPtr, *fLoopManager, std::move(newCols), fDataSource);
 
@@ -3007,6 +3056,31 @@ protected:
    {
       if (fDataSource != nullptr)
          RDFInternal::AddDSColumns(validCols, *fLoopManager, *fDataSource, typeList, fColRegister);
+   }
+
+   std::pair<int, int> GetEntryOffsetLimit(ColumnNames_t columns, const std::vector<int> &entryOffset)
+   {
+      std::pair<int, int> entryOffsetLimitParameters = {0, 0};
+      std::pair<int, int> entryOffsetLimit = {0, 0};
+
+      const auto &colRegister = fColRegister.GetColumns();
+      for (const auto &column : columns) {
+         if (fColRegister.HasName(column)) {
+            const auto &columnEntryOffset = colRegister.at(column)->GetEntryOffsetLimit();
+            entryOffsetLimitParameters.first = std::min(entryOffsetLimitParameters.first, columnEntryOffset.first);
+            entryOffsetLimitParameters.second = std::max(entryOffsetLimitParameters.second, columnEntryOffset.second);
+         }
+      }
+
+      for (const auto &offset : entryOffset) {
+         entryOffsetLimit.first = std::min(entryOffsetLimit.first, offset);
+         entryOffsetLimit.second = std::max(entryOffsetLimit.second, offset);
+      }
+
+      entryOffsetLimit.first -= entryOffsetLimitParameters.first;
+      entryOffsetLimit.second += entryOffsetLimitParameters.second;
+
+      return entryOffsetLimit;
    }
 };
 

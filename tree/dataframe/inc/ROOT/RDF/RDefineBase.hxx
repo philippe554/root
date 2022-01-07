@@ -46,10 +46,12 @@ protected:
    const ROOT::RDF::ColumnNames_t fColumnNames;
    /// The nth flag signals whether the nth input column is a custom column or not.
    ROOT::RVecB fIsDefine;
+   std::pair<int, int> fEntryOffsetLimit;
 
 public:
    RDefineBase(std::string_view name, std::string_view type, const RDFInternal::RColumnRegister &colRegister,
-               RLoopManager &lm, const ColumnNames_t &columnNames);
+               RLoopManager &lm, const ColumnNames_t &columnNames,
+               const std::pair<int, int> &entryOffsetLimit = {0, 0});
 
    RDefineBase &operator=(const RDefineBase &) = delete;
    RDefineBase &operator=(RDefineBase &&) = delete;
@@ -66,6 +68,7 @@ public:
    virtual void Update(unsigned int /*slot*/, const ROOT::RDF::RSampleInfo &/*id*/) {}
    /// Clean-up operations to be performed at the end of a task.
    virtual void FinaliseSlot(unsigned int slot) = 0;
+   const std::pair<int, int> &GetEntryOffsetLimit() const;
 };
 
 } // ns RDF

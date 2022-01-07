@@ -38,6 +38,7 @@ std::vector<std::string> GetBranchNames(TTree &t, bool allowDuplicates = true);
 
 class RActionBase;
 class GraphNode;
+class RProxyDS;
 
 namespace GraphDrawing {
 class GraphCreatorHelper;
@@ -102,6 +103,7 @@ class RLoopManager : public RNodeBase {
    enum class ELoopType { kROOTFiles, kROOTFilesMT, kNoFiles, kNoFilesMT, kDataSource, kDataSourceMT };
 
    friend struct RCallCleanUpTask;
+   friend class RDFInternal::RProxyDS;
 
    std::vector<RDFInternal::RActionBase *> fBookedActions; ///< Non-owning pointers to actions to be run
    std::vector<RDFInternal::RActionBase *> fRunActions;    ///< Non-owning pointers to actions already run
@@ -143,8 +145,10 @@ class RLoopManager : public RNodeBase {
    void RunDataSourceMT();
    void RunDataSource();
    void RunAndCheckFilters(unsigned int slot, Long64_t entry);
+   void Initialise();
    void InitNodeSlots(TTreeReader *r, unsigned int slot);
    void InitNodes();
+   void Finalise();
    void CleanUpNodes();
    void CleanUpTask(TTreeReader *r, unsigned int slot);
    void EvalChildrenCounts();

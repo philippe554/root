@@ -222,6 +222,11 @@ public:
    /// Concrete datasources can override the default implementation.
    virtual std::string GetLabel() { return "Custom Datasource"; }
 
+   virtual void AddEntryOffsetLimit(const std::pair<int, int> &)
+   {
+      throw std::runtime_error("Data source does not support entry offsets.");
+   }
+
 protected:
    /// type-erased vector of pointers to pointers to column values - one per slot
    virtual Record_t GetColumnReadersImpl(std::string_view name, const std::type_info &) = 0;

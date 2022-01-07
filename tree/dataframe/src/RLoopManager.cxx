@@ -592,6 +592,15 @@ void RLoopManager::RunAndCheckFilters(unsigned int slot, Long64_t entry)
       callback(slot);
 }
 
+void RLoopManager::Initialise()
+{
+   ThrowIfNSlotsChanged(GetNSlots());
+
+   Jit();
+
+   InitNodes();
+}
+
 /// Build TTreeReaderValues for all nodes
 /// This method loops over all filters, actions and other booked objects and
 /// calls their `InitSlot` method, to get them ready for running a task.
@@ -658,6 +667,12 @@ void RLoopManager::InitNodes()
       range->InitNode();
    for (auto &ptr : fBookedActions)
       ptr->Initialize();
+}
+
+void RLoopManager::Finalise()
+{
+   CleanUpNodes();
+   fNRuns++;
 }
 
 /// Perform clean-up operations. To be called at the end of each event loop.
@@ -742,11 +757,7 @@ void RLoopManager::Run()
 
    R__LOG_INFO(RDFLogChannel()) << "Starting event loop number " << fNRuns << '.';
 
-   ThrowIfNSlotsChanged(GetNSlots());
-
-   Jit();
-
-   InitNodes();
+   Initialise();
 
    TStopwatch s;
    s.Start();
@@ -760,9 +771,7 @@ void RLoopManager::Run()
    }
    s.Stop();
 
-   CleanUpNodes();
-
-   fNRuns++;
+   Finalise();
 
    R__LOG_INFO(RDFLogChannel()) << "Finished event loop number " << fNRuns - 1 << " (" << s.CpuTime() << "s CPU, "
                                 << s.RealTime() << "s elapsed).";
