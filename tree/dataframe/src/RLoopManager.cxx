@@ -686,6 +686,7 @@ void RLoopManager::CleanUpNodes()
 
    fRunActions.insert(fRunActions.begin(), fBookedActions.begin(), fBookedActions.end());
    fBookedActions.clear();
+   fBookedActions.insert(fBookedActions.begin(), fBookedActionsPermanent.begin(), fBookedActionsPermanent.end());
 
    // reset children counts
    fNChildren = 0;
@@ -788,15 +789,20 @@ TTree *RLoopManager::GetTree() const
    return fTree.get();
 }
 
-void RLoopManager::Book(RDFInternal::RActionBase *actionPtr)
+void RLoopManager::Book(RDFInternal::RActionBase *actionPtr, bool permanent)
 {
    fBookedActions.emplace_back(actionPtr);
+
+   if (permanent) {
+      fBookedActionsPermanent.emplace_back(actionPtr);
+   }
 }
 
 void RLoopManager::Deregister(RDFInternal::RActionBase *actionPtr)
 {
    RDFInternal::Erase(actionPtr, fRunActions);
    RDFInternal::Erase(actionPtr, fBookedActions);
+   RDFInternal::Erase(actionPtr, fBookedActionsPermanent);
 }
 
 void RLoopManager::Book(RFilterBase *filterPtr)

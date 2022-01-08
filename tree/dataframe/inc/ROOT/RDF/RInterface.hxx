@@ -20,6 +20,7 @@
 #include "ROOT/RDF/RDefine.hxx"
 #include "ROOT/RDF/RDefineOffset.hxx"
 #include "ROOT/RDF/RDefinePerSample.hxx"
+#include "ROOT/RDF/RDefinePersistent.hxx"
 #include "ROOT/RDF/RFilter.hxx"
 #include "ROOT/RDF/RLazyDSImpl.hxx"
 #include "ROOT/RDF/RLoopManager.hxx"
@@ -609,6 +610,56 @@ public:
       newCols.AddColumn(jittedDefine);
 
       RInterface<Proxied, DS_t> newInterface(fProxiedPtr, *fLoopManager, std::move(newCols), fDataSource);
+
+      return newInterface;
+   }
+
+   template <typename F, typename std::enable_if_t<!std::is_convertible<F, std::string>::value, int> = 0>
+   RInterface<Proxied, DS_t> DefinePersistent(std::string_view name, F expression, const ColumnNames_t &columns = {})
+   {
+      RDFInternal::CheckValidCppVarName(name, "Define");
+      RDFInternal::CheckForRedefinition("Define", name, fColRegister.GetNames(), fLoopManager->GetAliasMap(),
+                                        fLoopManager->GetBranchNames(),
+                                        fDataSource ? fDataSource->GetColumnNames() : ColumnNames_t{});
+
+      using FunParamTypes_t = typename ROOT::TypeTraits::CallableTraits<F>::arg_types;
+      using PersistentParamType_t = ROOT::TypeTraits::TakeFirstParameter_t<FunParamTypes_t>;
+      using ColumnTypes_t = ROOT::TypeTraits::RemoveFirstParameter_t<FunParamTypes_t>;
+
+      constexpr auto nColumns = ColumnTypes_t::list_size;
+
+      const auto validColumnNames = GetValidatedColumnNames(nColumns, columns);
+      CheckAndFillDSColumns(validColumnNames, ColumnTypes_t());
+
+      // Declare return type to the interpreter, for future use by jitted actions
+      auto retTypeName = RDFInternal::TypeID2TypeName(typeid(PersistentParamType_t));
+      if (retTypeName.empty()) {
+         // The type is not known to the interpreter.
+         // We must not error out here, but if/when this column is used in jitted code
+         const auto demangledType = RDFInternal::DemangleTypeIdName(typeid(PersistentParamType_t));
+         retTypeName = "CLING_UNKNOWN_TYPE_" + demangledType;
+      }
+
+      using NewCol_t = RDFDetail::RDefinePersistent<F>;
+      auto newColumn = std::make_shared<NewCol_t>(name, retTypeName, std::forward<F>(expression), validColumnNames,
+                                                  fColRegister, *fLoopManager);
+
+      fLoopManager->Book(newColumn.get());
+
+      RDFInternal::RColumnRegister newCols(fColRegister);
+      newCols.AddColumn(newColumn);
+
+      RInterface<Proxied> newInterface(fProxiedPtr, *fLoopManager, std::move(newCols), fDataSource);
+
+      // Add an action to this new interface, such that even if a downstream filter is added, all calls are executed.
+
+      using Helper_t = RDFInternal::EvalHelper;
+      using Action_t = RDFInternal::RAction<Helper_t, Proxied>;
+
+      auto action =
+         std::make_unique<Action_t>(Helper_t(newColumn.get()), ColumnNames_t({"rdfentry_"}), fProxiedPtr, newCols);
+      fLoopManager->Book(action.get(), true);       // no ownership, book permanent
+      newColumn->GiveEvalAction(std::move(action)); // holds ownership
 
       return newInterface;
    }

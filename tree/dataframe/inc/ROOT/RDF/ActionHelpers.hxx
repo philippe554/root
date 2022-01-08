@@ -23,6 +23,7 @@
 #include "ROOT/RStringView.hxx"
 #include "ROOT/RVec.hxx"
 #include "ROOT/TBufferMerger.hxx" // for SnapshotHelper
+#include "ROOT/RDF/RDefineBase.hxx" // for EvalHelper
 #include "ROOT/RDF/RCutFlowReport.hxx"
 #include "ROOT/RDF/RSampleInfo.hxx"
 #include "ROOT/RDF/Utils.hxx"
@@ -229,6 +230,25 @@ public:
    }
 
    std::string GetActionName() { return "Report"; }
+};
+
+class EvalHelper : public RActionImpl<EvalHelper> {
+private:
+   RDefineBase *fEvalDefine;
+
+public:
+   using ColumnTypes_t = TypeList<ULong64_t>;
+   EvalHelper(RDefineBase *evalDefine) : fEvalDefine(evalDefine){};
+   EvalHelper(EvalHelper &&) = default;
+   EvalHelper(const EvalHelper &) = delete;
+   void InitTask(TTreeReader *, unsigned int) {}
+   void Exec(unsigned int slot, ULong64_t entry) { fEvalDefine->Update(slot, entry); }
+   void Initialize()
+   { /* noop */
+   }
+   void Finalize() {}
+
+   std::string GetActionName() { return "EvalHelper"; }
 };
 
 class FillHelper : public RActionImpl<FillHelper> {

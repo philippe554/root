@@ -106,6 +106,7 @@ class RLoopManager : public RNodeBase {
    friend class RDFInternal::RProxyDS;
 
    std::vector<RDFInternal::RActionBase *> fBookedActions; ///< Non-owning pointers to actions to be run
+   std::vector<RDFInternal::RActionBase *> fBookedActionsPermanent;
    std::vector<RDFInternal::RActionBase *> fRunActions;    ///< Non-owning pointers to actions already run
    std::vector<RFilterBase *> fBookedFilters;
    std::vector<RFilterBase *> fBookedNamedFilters; ///< Contains a subset of fBookedFilters, i.e. only the named filters
@@ -172,7 +173,7 @@ public:
    ::TDirectory *GetDirectory() const;
    ULong64_t GetNEmptyEntries() const { return fNEmptyEntries; }
    RDataSource *GetDataSource() const { return fDataSource.get(); }
-   void Book(RDFInternal::RActionBase *actionPtr);
+   void Book(RDFInternal::RActionBase *actionPtr, bool permanent = false);
    void Deregister(RDFInternal::RActionBase *actionPtr);
    void Book(RFilterBase *filterPtr);
    void Deregister(RFilterBase *filterPtr);
