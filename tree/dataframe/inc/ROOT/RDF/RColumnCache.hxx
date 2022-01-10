@@ -41,6 +41,8 @@ public:
    {
    }
 
+   RColumnCache(int nSlots) : fCaches(nSlots), fCurrentFirstEntries(nSlots * RDFInternal::CacheLineStep<Long64_t>()) {}
+
    virtual ~RColumnCache(){};
 
    void InitSlot(unsigned int slot, Long64_t startEntry)
@@ -64,6 +66,8 @@ public:
    }
 
    void Load(int slot, Long64_t entrySource) { fCaches[slot]->push_back(fReaders[slot]->template Get<T>(entrySource)); }
+
+   void LoadValue(int slot, const T &value) { fCaches[slot]->push_back(value); }
 
    void PurgeTill(int slot, Long64_t entry)
    {

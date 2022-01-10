@@ -17,6 +17,9 @@ namespace ROOT {
 namespace Detail {
 namespace RDF {
 
+template <class F>
+class RColumReaderRemapper;
+
 /**
 \class ROOT::Internal::RDF::RColumnReaderBase
 \ingroup dataframe
@@ -28,6 +31,9 @@ RDSColumnReader.
 class R__CLING_PTRCHECK(off) RColumnReaderBase {
 public:
    virtual ~RColumnReaderBase() = default;
+
+   template <class F>
+   friend class RColumReaderRemapper;
 
    /// Return the column value for the given entry. Called at most once per entry.
    /// \tparam T The column type

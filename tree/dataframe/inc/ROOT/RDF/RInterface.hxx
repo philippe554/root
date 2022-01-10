@@ -27,6 +27,7 @@
 #include "ROOT/RDF/RRange.hxx"
 #include "ROOT/RDF/Utils.hxx"
 #include "ROOT/RMovingCachedDS.hxx"
+#include "ROOT/RResampleDS.hxx"
 #include "ROOT/RResultPtr.hxx"
 #include "ROOT/RSnapshotOptions.hxx"
 #include "ROOT/RStringView.hxx"
@@ -1038,8 +1039,25 @@ public:
    template <typename... ColumnTypes>
    RInterface<RLoopManager> MovingCache(ColumnNames_t columns)
    {
-      auto cachedDataSource = RDFInternal::MakeRMovingCachedDS<RInterface, Proxied, ColumnTypes...>(
-         *this, fProxiedPtr, fLoopManager, fColRegister, columns);
+      auto cachedDataSource = RDFInternal::MakeRMovingCachedDS<Proxied, ColumnTypes...>(
+         fProxiedPtr, fLoopManager, fColRegister, columns, GetColumnTypeNamesList(columns));
+
+      ColumnNames_t defaultColumnNames;
+      auto cachedLoopManager =
+         std::make_shared<RDFDetail::RLoopManager>(std::move(cachedDataSource), defaultColumnNames);
+
+      RInterface<RLoopManager> cachedDataFrame(cachedLoopManager);
+
+      return cachedDataFrame;
+   }
+
+   template <typename TimeType, typename... ColumnTypes>
+   RInterface<RLoopManager> Resample(const std::string &timeColumn, TimeType resampleStepsize, TimeType resampleFrom,
+                                     TimeType resampleTo, ColumnNames_t columns)
+   {
+      auto cachedDataSource = RDFInternal::MakeRResampleDS<Proxied, TimeType, ColumnTypes...>(
+         fProxiedPtr, fLoopManager, fColRegister, timeColumn, resampleStepsize, resampleFrom, resampleTo, columns,
+         GetColumnTypeNamesList(columns));
 
       ColumnNames_t defaultColumnNames;
       auto cachedLoopManager =

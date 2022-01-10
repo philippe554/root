@@ -30,10 +30,9 @@ namespace RDF {
 namespace RDFDetail = ROOT::Detail::RDF;
 namespace RDFInternal = ROOT::Internal::RDF;
 
-template <typename SourceDataFrame, typename Proxied>
-class RMovingCachedDS final : public RDFInternal::RProxyDS {
+template <typename Proxied>
+class RMovingCachedDS : public RDFInternal::RProxyDS {
 protected:
-   SourceDataFrame fSourceDataFrame;
    std::shared_ptr<Proxied> fProxiedPtr;
    RDFInternal::RColumnRegister fColumnRegister;
 
@@ -42,17 +41,16 @@ protected:
    std::pair<int, int> fEntryOffsetLimit = {0, 0};
 
    ROOT::RDF::ColumnNames_t fColumnNames;
-   std::map<std::string, std::string> fColumnTypes;
+   std::vector<std::string> fColumnTypes;
 
    std::map<std::string, std::unique_ptr<RDFInternal::RColumnCacheBase>> fCaches;
    std::vector<Long64_t> fSourceLoadedEntries;
    std::vector<Long64_t> fLoadedEntries;
 
 public:
-   RMovingCachedDS(SourceDataFrame &sourceDataFrame, std::shared_ptr<Proxied> proxiedPtr,
-                   RLoopManager *sourceLoopManager, const RDFInternal::RColumnRegister &columnRegister)
-      : RProxyDS(sourceLoopManager), fSourceDataFrame(sourceDataFrame), fProxiedPtr(proxiedPtr),
-        fColumnRegister(columnRegister),
+   RMovingCachedDS(std::shared_ptr<Proxied> proxiedPtr, RLoopManager *sourceLoopManager,
+                   const RDFInternal::RColumnRegister &columnRegister)
+      : RProxyDS(sourceLoopManager), fProxiedPtr(proxiedPtr), fColumnRegister(columnRegister),
         fSourceLoadedEntries(sourceLoopManager->GetNSlots() * RDFInternal::CacheLineStep<Long64_t>()),
         fLoadedEntries(sourceLoopManager->GetNSlots() * RDFInternal::CacheLineStep<Long64_t>())
    {
@@ -61,12 +59,10 @@ public:
    virtual ~RMovingCachedDS() = default;
 
    template <typename... ColumnTypes>
-   void Setup(ColumnNames_t &columns)
+   void Setup(ColumnNames_t &columns, const std::vector<std::string> &columnTypes)
    {
       fColumnNames = columns;
-      for (const auto &columnName : fColumnNames) {
-         fColumnTypes[columnName] = fSourceDataFrame.GetColumnType(columnName);
-      }
+      fColumnTypes = columnTypes;
 
       int i = 0;
       int expander[] = {(SetupCache<ColumnTypes>(columns[i]), ++i)..., 0};
@@ -109,10 +105,15 @@ public:
 
    std::string GetTypeName(std::string_view colName) const
    {
-      if (fColumnTypes.count(colName.data()) == 0) {
+      auto it = std::find(fColumnNames.begin(), fColumnNames.end(), colName);
+
+      if (it == fColumnNames.end()) {
          throw std::runtime_error(std::string("Column not found in RMovingCachedDS: ") + colName.data());
       }
-      return fColumnTypes.at(colName.data());
+
+      int index = std::distance(fColumnNames.begin(), it);
+
+      return fColumnTypes.at(index);
    }
 
    const std::vector<std::string> &GetColumnNames() const { return fColumnNames; }
@@ -222,15 +223,14 @@ public:
    }
 };
 
-template <typename SourceDataFrame, typename Proxied, typename... ColumnTypes>
-static std::unique_ptr<RMovingCachedDS<SourceDataFrame, Proxied>>
-MakeRMovingCachedDS(SourceDataFrame &sourceDataFrame, std::shared_ptr<Proxied> proxiedPtr,
-                    RLoopManager *sourceLoopManager, const RDFInternal::RColumnRegister &colRegister,
-                    ColumnNames_t &columns)
+template <typename Proxied, typename... ColumnTypes>
+static std::unique_ptr<RMovingCachedDS<Proxied>>
+MakeRMovingCachedDS(std::shared_ptr<Proxied> proxiedPtr, RLoopManager *sourceLoopManager,
+                    const RDFInternal::RColumnRegister &colRegister, ColumnNames_t &columns,
+                    const std::vector<std::string> &columnTypes)
 {
-   auto ds = std::make_unique<RMovingCachedDS<SourceDataFrame, Proxied>>(sourceDataFrame, proxiedPtr, sourceLoopManager,
-                                                                         colRegister);
-   ds->template Setup<ColumnTypes...>(columns);
+   auto ds = std::make_unique<RMovingCachedDS<Proxied>>(proxiedPtr, sourceLoopManager, colRegister);
+   ds->template Setup<ColumnTypes...>(columns, columnTypes);
    return ds;
 }
 

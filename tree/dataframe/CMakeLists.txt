@@ -38,6 +38,8 @@ ROOT_STANDARD_LIBRARY_PACKAGE(ROOTDataFrame
     ROOT/RDataSource.hxx
     ROOT/RDFHelpers.hxx
     ROOT/RLazyDS.hxx
+    ROOT/RMovingCachedDS.hxx
+    ROOT/RResampleDS.hxx
     ROOT/RResultPtr.hxx
     ROOT/RResultHandle.hxx
     ROOT/RRootDS.hxx
@@ -59,6 +61,7 @@ ROOT_STANDARD_LIBRARY_PACKAGE(ROOTDataFrame
     ROOT/RDF/RDefineReader.hxx
     ROOT/RDF/RDSColumnReader.hxx
     ROOT/RDF/RColumnReaderBase.hxx
+    ROOT/RDF/RColumnReaderRemapper.hxx
     ROOT/RDF/RCutFlowReport.hxx
     ROOT/RDF/RDisplay.hxx
     ROOT/RDF/RFilterBase.hxx
