@@ -1,7 +1,7 @@
 // Author:
 
 /*************************************************************************
- * Copyright (C) 1995-2018, Rene Brun and Fons Rademakers.               *
+ * Copyright (C) 1995-2022, Rene Brun and Fons Rademakers.               *
  * All rights reserved.                                                  *
  *                                                                       *
  * For the licensing terms see $ROOTSYS/LICENSE.                         *
@@ -16,7 +16,9 @@
 #include "ROOT/RDF/RColumnCache.hxx"
 #include "ROOT/RDF/RColumnCacheReader.hxx"
 #include "ROOT/RDF/RDefineReader.hxx"
+#include "ROOT/RDF/RDSColumnReader.hxx"
 #include "ROOT/RDF/RLoopManager.hxx"
+#include "ROOT/RDF/RTreeColumnReader.hxx"
 #include "ROOT/RDF/Utils.hxx"
 
 #include <map>
@@ -36,7 +38,12 @@ protected:
    std::shared_ptr<Proxied> fProxiedPtr;
    RDFInternal::RColumnRegister fColumnRegister;
 
-   std::vector<std::pair<ULong64_t, ULong64_t>> fRanges; // only used if source is an empty dataframe
+   std::vector<std::pair<ULong64_t, ULong64_t>> fRanges;
+
+   // fRanges is not in the same order as the slot index,
+   // thus this vector stores the corrected order after starting looping
+   std::vector<std::pair<ULong64_t, ULong64_t>> fSlotRanges;
+
    int fNGetEntryRangesCalled = 0;
    std::pair<int, int> fEntryOffsetLimit = {0, 0};
 
@@ -83,8 +90,23 @@ public:
          }
       } else if (fDataSource) {
          if (fDataSource->HasColumn(name)) {
+            std::vector<T **> dataPointers = fDataSource->GetColumnReaders<T>(name);
+            if (dataPointers.size() > 0) {
+               for (auto **dataPointer : dataPointers) {
+                  auto reader = std::make_unique<RDFInternal::RDSColumnReader<T>>(static_cast<void *>(dataPointer));
+                  readers.push_back(std::move(reader));
+               }
+            } else {
+               for (int slot = 0; slot < fSourceLoopManager->GetNSlots(); slot++) {
+                  auto reader = fDataSource->GetColumnReaders(slot, name, typeid(T));
+                  readers.push_back(std::move(reader));
+               }
+            }
+         }
+      } else if (fTree) {
+         if (true) { // TODO: check if tree has column
             for (int slot = 0; slot < fSourceLoopManager->GetNSlots(); slot++) {
-               auto reader = fDataSource->GetColumnReaders(slot, name, typeid(T));
+               auto reader = std::make_unique<RDFInternal::RTreeColumnReader<T>>(*fReaders[slot].get(), name);
                readers.push_back(std::move(reader));
             }
          }
@@ -128,42 +150,31 @@ public:
       if (fDataSource) {
          fRanges = fDataSource->GetEntryRanges();
 
-         for (auto &range : fRanges) {
-            range.first += static_cast<ULong64_t>(-fEntryOffsetLimit.first);
-            range.second -= static_cast<ULong64_t>(fEntryOffsetLimit.second);
-         }
-      } else {
-         if (fSourceLoopManager->GetNSlots() > 1) {
-            throw std::runtime_error("Multiple slots with an empty data source not implemented.");
-         }
-
-         fRanges.clear();
-
-         if (fNGetEntryRangesCalled == 0) {
-            ULong64_t numberOfEntries = fSourceLoopManager->GetNEmptyEntries();
-            fRanges.emplace_back(static_cast<ULong64_t>(-fEntryOffsetLimit.first),
-                                 numberOfEntries - static_cast<ULong64_t>(fEntryOffsetLimit.second));
-         }
-      }
-
-      // InitSlot is not always called with the correct firstEntry, so init the caches here.
-      if (fRanges.size() > 0) {
-         if (fRanges.size() != fSourceLoopManager->GetNSlots()) {
+         if (fRanges.size() > 0 && fRanges.size() != fSourceLoopManager->GetNSlots()) {
             throw std::runtime_error(
                "Number of ranges does not match number of slots, special implementation required.");
          }
 
-         for (int slot = 0; slot < fSourceLoopManager->GetNSlots(); slot++) {
-            fSourceLoadedEntries[slot * RDFInternal::CacheLineStep<Long64_t>()] =
-               static_cast<Long64_t>(fRanges[slot].first) + fEntryOffsetLimit.first - 1;
-            fLoadedEntries[slot * RDFInternal::CacheLineStep<Long64_t>()] =
-               static_cast<Long64_t>(fRanges[slot].first) + fEntryOffsetLimit.first - 1;
+         for (auto &range : fRanges) {
+            range.first += static_cast<ULong64_t>(-fEntryOffsetLimit.first);
+            range.second -= static_cast<ULong64_t>(fEntryOffsetLimit.second);
+         }
+      } else // this is the case for an empty data source and a TTree data source
+      {
+         if (fNGetEntryRangesCalled == 0) {
+            fRanges = fSourceRanges;
 
-            for (const auto &cache : fCaches) {
-               cache.second->InitSlot(slot, static_cast<Long64_t>(fRanges[slot].first) + fEntryOffsetLimit.first);
+            for (auto &range : fRanges) {
+               range.first += static_cast<ULong64_t>(-fEntryOffsetLimit.first);
+               range.second -= static_cast<ULong64_t>(fEntryOffsetLimit.second);
             }
+         } else {
+            fRanges.clear();
          }
       }
+
+      fSlotRanges.clear();
+      fSlotRanges.resize(fRanges.size());
 
       fNGetEntryRangesCalled++;
 
@@ -176,7 +187,8 @@ public:
              static_cast<Long64_t>(entry)) {
          fSourceLoadedEntries[slot * RDFInternal::CacheLineStep<Long64_t>()]++;
 
-         if (fSourceLoadedEntries[slot * RDFInternal::CacheLineStep<Long64_t>()] >= fRanges[slot].second) {
+         if (fSourceLoadedEntries[slot * RDFInternal::CacheLineStep<Long64_t>()] >=
+             fSlotRanges[slot].second + fEntryOffsetLimit.second) {
             return false;
          }
 
@@ -200,6 +212,31 @@ public:
    }
 
    virtual void InitialiseDerived() { fNGetEntryRangesCalled = 0; }
+
+   virtual void InitSlotDerived(unsigned int slot, ULong64_t firstEntry)
+   {
+      bool rangeFound = false;
+
+      for (const auto &range : fRanges) {
+         if (range.first == firstEntry) {
+            fSlotRanges[slot] = range;
+            rangeFound = true;
+
+            fSourceLoadedEntries[slot * RDFInternal::CacheLineStep<Long64_t>()] =
+               static_cast<Long64_t>(fSlotRanges[slot].first) + fEntryOffsetLimit.first - 1;
+            fLoadedEntries[slot * RDFInternal::CacheLineStep<Long64_t>()] =
+               static_cast<Long64_t>(fSlotRanges[slot].first) + fEntryOffsetLimit.first - 1;
+
+            for (const auto &cache : fCaches) {
+               cache.second->InitSlot(slot, static_cast<Long64_t>(fSlotRanges[slot].first) + fEntryOffsetLimit.first);
+            }
+         }
+      }
+
+      if (!rangeFound) {
+         throw std::runtime_error("Range not found.");
+      }
+   }
 
    virtual void FinaliseSlotDerived(unsigned int slot)
    {
